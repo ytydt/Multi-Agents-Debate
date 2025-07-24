@@ -68,6 +68,14 @@ python3 interactive.py
 
 Or simply try our demo for translation [here](https://3a3262e6a138888bd4.gradio.live/).
 
+**Evaluate College Math**
+
+To evaluate LLMs on the college mathematics subset of MMLU, run
+
+```shell
+python3 code/eval_college_math.py -k Your-OpenAI-Api-Key
+```
+
 
 ## Main Results
 
