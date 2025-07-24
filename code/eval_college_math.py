@@ -5,6 +5,8 @@ from tqdm import tqdm
 import re
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'utils', 'config4all.json')
 
@@ -42,7 +44,7 @@ def query(messages: list[dict], model: str, api_key: str) -> str:
     return resp['choices'][0]['message']['content']
 
 
-def run_debate(question: str, choices: list[str], model: str, api_key: str) -> str:
+def run_debate(question: str, choices: list[str], model: str, api_key: str):
     topic = build_prompt(question, choices)
     config = json.load(open(CONFIG_PATH))
     config['debate_topic'] = topic
@@ -57,6 +59,7 @@ def run_debate(question: str, choices: list[str], model: str, api_key: str) -> s
     aff_msgs = [{'role': 'system', 'content': config['player_meta_prompt']}]
     neg_msgs = [{'role': 'system', 'content': config['player_meta_prompt']}]
     mod_msgs = [{'role': 'system', 'content': config['moderator_meta_prompt']}]
+    judge_msgs = []
 
     # First round
     aff_msgs.append({'role': 'user', 'content': config['affirmative_prompt']})
@@ -100,7 +103,15 @@ def run_debate(question: str, choices: list[str], model: str, api_key: str) -> s
         judge_msgs.append({'role': 'assistant', 'content': ans})
         result = eval(ans)
 
-    return result.get('debate_answer', '')
+    return {
+        'answer': result.get('debate_answer', ''),
+        'history': {
+            'affirmative': aff_msgs,
+            'negative': neg_msgs,
+            'moderator': mod_msgs,
+            'judge': judge_msgs,
+        }
+    }
 
 
 def extract_choice(text: str) -> str:
@@ -111,13 +122,33 @@ def extract_choice(text: str) -> str:
     return m.group(1) if m else ''
 
 
-def evaluate(data, model: str, api_key: str):
+
+def evaluate(data, model: str, api_key: str, workers: int = 4, output: Optional[str] = None):
+    results = []
+
+    def worker(example):
+        q, choices, ans = example
+        outcome = run_debate(q, choices, model, api_key)
+        pred = extract_choice(outcome['answer'])
+        return {
+            'question': q,
+            'choices': choices,
+            'answer': ans,
+            'prediction': pred,
+            'history': outcome['history'],
+        }, pred == ans
+
     correct = 0
-    for q, choices, ans in tqdm(data):
-        reply = run_debate(q, choices, model, api_key)
-        pred = extract_choice(reply)
-        if pred == ans:
-            correct += 1
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for res, flag in tqdm(ex.map(worker, data), total=len(data)):
+            results.append(res)
+            if flag:
+                correct += 1
+
+    if output:
+        with open(output, 'w', encoding='utf-8') as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+
     return correct / len(data)
 
 
@@ -126,10 +157,12 @@ def main():
     parser.add_argument('-k', '--api-key', required=True, help='OpenAI API key')
     parser.add_argument('-m', '--model', default='gpt-3.5-turbo', help='Model name')
     parser.add_argument('-d', '--dataset', default='data/CollegeMath/college_mathematics_test.csv', help='Dataset path')
+    parser.add_argument('-o', '--output', default=None, help='Path to save debate logs in json format')
+    parser.add_argument('-w', '--workers', type=int, default=4, help='Number of concurrent workers')
     args = parser.parse_args()
 
     data = load_dataset(args.dataset)
-    acc = evaluate(data, args.model, args.api_key)
+    acc = evaluate(data, args.model, args.api_key, workers=args.workers, output=args.output)
     print(f"Accuracy: {acc:.2%}")
 
 
