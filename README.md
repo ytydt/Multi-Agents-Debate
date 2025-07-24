@@ -68,6 +68,18 @@ python3 interactive.py
 
 Or simply try our demo for translation [here](https://3a3262e6a138888bd4.gradio.live/).
 
+**Evaluate College Math**
+
+To evaluate LLMs on the college mathematics subset of MMLU, run
+the following command. The script launches a multi-agent debate
+between two debaters and a moderator for each question. Answers
+are expected in the form `\boxed{X}` where `X` is one of `A`, `B`,
+`C` or `D`.
+
+```shell
+python3 code/eval_college_math.py -k Your-OpenAI-Api-Key
+```
+
 
 ## Main Results
 
